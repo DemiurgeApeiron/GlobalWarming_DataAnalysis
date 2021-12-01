@@ -26,14 +26,14 @@ def makeConnection():
 
 
 def SQL_Querry(cursor):
-    queryGetName = f"SELECT dt, LandAverageTemperature FROM GlobalWarming.global_temperatures WHERE dt <= 2020"
+    queryGetName = f"SELECT dt, LandAverageTemperature, LandAverageTemperatureUncertainty FROM GlobalWarming.global_temperatures WHERE dt <= 2020"
     cursor.execute(queryGetName)
     data = cursor.fetchall()
     return data
 
 
 def data_processing(list):
-    df = pd.DataFrame(list, columns=["Date", "AverageTemperature"])
+    df = pd.DataFrame(list, columns=["Date", "AverageTemperature", "LandAverageTemperatureUncertainty"])
     df["Date"] = pd.to_datetime(df["Date"])
     print(df.info())
     print(df.describe())
@@ -42,22 +42,26 @@ def data_processing(list):
 
 
 def dataDisplay(DataFrameProcessed):
+    DataFrameProcessed["AverageTemperature + Uncertainty"] = DataFrameProcessed["AverageTemperature"] + DataFrameProcessed["LandAverageTemperatureUncertainty"]
+    DataFrameProcessed["AverageTemperature - Uncertainty"] = DataFrameProcessed["AverageTemperature"] - DataFrameProcessed["LandAverageTemperatureUncertainty"]
+    DataFrameProcessed = DataFrameProcessed[["Date", "AverageTemperature", "AverageTemperature + Uncertainty", "AverageTemperature - Uncertainty"]]
     DataFrameProcessed = DataFrameProcessed.groupby(pd.Grouper(key="Date", freq="Y")).mean()
-    sns.lineplot(x=DataFrameProcessed.index.values, y=DataFrameProcessed["AverageTemperature"])
+    print(DataFrameProcessed.head())
+    sns.lineplot(data=DataFrameProcessed)
     plt.show()
 
 
 def DataModel(DataFrameProcessed):
-    X_train, X_test, y_train, y_test = train_test_split(DataFrameProcessed["Date"].values.tolist(), DataFrameProcessed["AverageTemperature"].values.tolist(), test_size=0.20)
-
-    X_train = np.array(X_train)
-    X_test = np.array(X_test)
-    y_train = np.array(y_train)
-    y_test = np.array(y_test)
-    print(X_train, DataFrameProcessed["Date"].values.tolist())
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train.reshape(-1, 1))
-    X_test = scaler.transform(X_test.reshape(-1, 1))
+    DataFrameProcessed["Year"] = DataFrameProcessed["Date"].dt.year
+    DataFrameProcessed["Month"] = DataFrameProcessed["Date"].dt.month
+    DataFrameProcessed["Day"] = DataFrameProcessed["Date"].dt.day
+    x = DataFrameProcessed[["Year", "Month", "Day"]].to_numpy()
+    y = DataFrameProcessed["AverageTemperature"].to_numpy()
+    X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.20)
+    print(X_train)
+    # scaler = StandardScaler()
+    # X_train = scaler.fit_transform(X_train.reshape(-1, 1))
+    # X_test = scaler.transform(X_test.reshape(-1, 1))
     N, D = X_train.shape
 
     model = tf.keras.models.Sequential()
@@ -70,13 +74,13 @@ def DataModel(DataFrameProcessed):
     model.compile(optimizer=opt, loss="mse")
     # learning rate schededuler (variable lr)
     def schedule(epoch, lr):
-        if epoch >= 100:
+        if epoch >= 50:
             print(lr)
-            return lr - lr / 100
+            return lr - lr / 50
         return 0.01
 
     scheduler = tf.keras.callbacks.LearningRateScheduler(schedule)
-    r = model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=200, callbacks=[scheduler])
+    r = model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=70, callbacks=[scheduler])
 
     print(f"Train score: {model.evaluate(X_train, y_train)}")
     print(f"Test score: {model.evaluate(X_test, y_test)}")
@@ -95,12 +99,15 @@ def DataModel(DataFrameProcessed):
     futureYears = []
     for i in range(50):
         X_year += 1
-        futureYears.append()
+        futureYears.append([X_year, 1, 1])
 
     futureYears = np.array(futureYears)
-    futureYears = scaler.fit_transform(futureYears.reshape(-1, 1))
+    # futureYears = scaler.fit_transform(futureYears.reshape(-1, 1))
     yhatFutureYears = model.predict(futureYears).flatten()
-    sns.lineplot(x=futureYears, y=yhatFutureYears)
+    print(futureYears[0], yhatFutureYears)
+    print(len(futureYears[0]), len(yhatFutureYears))
+
+    sns.lineplot(x=np.array([2020 + x for x in range(50)]), y=yhatFutureYears)
     plt.show()
 
 
